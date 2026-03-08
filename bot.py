@@ -10,25 +10,13 @@ from telegram.ext import (
     ContextTypes,
 )
 
-# ==============================
-# ENV VARIABLES
-# ==============================
-
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = int(os.getenv("CHAT_ID"))
-
-# ==============================
-# LOAD STUDENTS
-# ==============================
 
 with open("students.json", "r") as f:
     students = json.load(f)
 
 selected_students = set()
-
-# ==============================
-# DATABASE
-# ==============================
 
 conn = sqlite3.connect("attendance.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -44,10 +32,6 @@ UNIQUE(date, student)
 
 conn.commit()
 
-# ==============================
-# COMMANDS
-# ==============================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Dance Attendance Bot Running")
 
@@ -56,10 +40,6 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await generate_report(context)
-
-# ==============================
-# DAILY PROMPT
-# ==============================
 
 async def send_daily_prompt(context: ContextTypes.DEFAULT_TYPE):
 
@@ -74,10 +54,6 @@ async def send_daily_prompt(context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-# ==============================
-# YES / NO RESPONSE
-# ==============================
-
 async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
@@ -89,10 +65,6 @@ async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "class_yes":
         await show_students(query)
-
-# ==============================
-# STUDENT BUTTONS (2 columns)
-# ==============================
 
 async def show_students(query):
 
@@ -125,10 +97,6 @@ async def show_students(query):
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-# ==============================
-# TOGGLE STUDENT
-# ==============================
-
 async def toggle_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
@@ -142,10 +110,6 @@ async def toggle_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
         selected_students.add(student)
 
     await show_students(query)
-
-# ==============================
-# SAVE ATTENDANCE
-# ==============================
 
 async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -162,16 +126,12 @@ async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (today, student),
             )
         except sqlite3.IntegrityError:
-            pass  # prevents duplicate entries
+            pass
 
     conn.commit()
     selected_students.clear()
 
     await query.edit_message_text("Attendance saved.")
-
-# ==============================
-# REPORT GENERATOR
-# ==============================
 
 async def generate_report(context: ContextTypes.DEFAULT_TYPE):
 
@@ -198,30 +158,42 @@ async def generate_report(context: ContextTypes.DEFAULT_TYPE):
 
     months = sorted(months)
 
-    text = "Attendance Summary (Last 3 Months)\n\n"
-    text += "Student  " + "  ".join(months) + "\n"
+    col_width = 10
+
+    border = "+" + "-"*12 + "+"
+    for m in months:
+        border += "-"*(col_width) + "+"
+
+    header = "| Student".ljust(13) + "|"
+    for m in months:
+        header += m.center(col_width) + "|"
+
+    lines = [border, header, border]
 
     for student in students:
 
-        line = student + "  "
+        row = "| " + student.ljust(10) + "|"
 
         for m in months:
-            line += str(report.get(student, {}).get(m, 0)) + "  "
+            count = report.get(student, {}).get(m, 0)
+            row += str(count).center(col_width) + "|"
 
-        text += line + "\n"
+        lines.append(row)
 
-    await context.bot.send_message(chat_id=CHAT_ID, text=text)
+    lines.append(border)
 
-# ==============================
-# WEEKLY REPORT JOB
-# ==============================
+    table = "\n".join(lines)
+
+    message = "Attendance Summary (Last 3 Months)\n\n```\n" + table + "\n```"
+
+    await context.bot.send_message(
+        chat_id=CHAT_ID,
+        text=message,
+        parse_mode="Markdown"
+    )
 
 async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
     await generate_report(context)
-
-# ==============================
-# MAIN
-# ==============================
 
 def main():
 
@@ -229,21 +201,17 @@ def main():
 
     job_queue = app.job_queue
 
-    # Daily 9 PM IST
     job_queue.run_daily(
         send_daily_prompt,
         time=datetime.strptime("21:00", "%H:%M").time(),
         chat_id=CHAT_ID,
-        name="daily_attendance",
     )
 
-    # Sunday 9 PM IST
     job_queue.run_daily(
         weekly_report,
         time=datetime.strptime("21:00", "%H:%M").time(),
         days=(6,),
         chat_id=CHAT_ID,
-        name="weekly_report",
     )
 
     app.add_handler(CommandHandler("start", start))
