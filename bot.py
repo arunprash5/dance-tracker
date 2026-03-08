@@ -1,8 +1,8 @@
 import os
 import json
 import sqlite3
-from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from datetime import datetime, time
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -13,12 +13,14 @@ from telegram.ext import (
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = int(os.getenv("CHAT_ID"))
 
+DB_PATH = "/data/attendance.db"
+
 with open("students.json", "r") as f:
     students = json.load(f)
 
 selected_students = set()
 
-conn = sqlite3.connect("attendance.db", check_same_thread=False)
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
@@ -32,6 +34,10 @@ UNIQUE(date, student)
 
 conn.commit()
 
+# -----------------------------
+# COMMANDS
+# -----------------------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Dance Attendance Bot Running")
 
@@ -40,6 +46,13 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await generate_report(context)
+
+async def backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_document(InputFile(DB_PATH))
+
+# -----------------------------
+# DAILY PROMPT
+# -----------------------------
 
 async def send_daily_prompt(context: ContextTypes.DEFAULT_TYPE):
 
@@ -54,6 +67,10 @@ async def send_daily_prompt(context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
+# -----------------------------
+# YES / NO RESPONSE
+# -----------------------------
+
 async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
@@ -65,6 +82,10 @@ async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "class_yes":
         await show_students(query)
+
+# -----------------------------
+# STUDENT BUTTONS
+# -----------------------------
 
 async def show_students(query):
 
@@ -88,14 +109,16 @@ async def show_students(query):
     if row:
         keyboard.append(row)
 
-    keyboard.append(
-        [InlineKeyboardButton("SUBMIT", callback_data="submit")]
-    )
+    keyboard.append([InlineKeyboardButton("SUBMIT", callback_data="submit")])
 
     await query.edit_message_text(
         "Select students present:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+# -----------------------------
+# TOGGLE STUDENT
+# -----------------------------
 
 async def toggle_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -110,6 +133,10 @@ async def toggle_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
         selected_students.add(student)
 
     await show_students(query)
+
+# -----------------------------
+# SAVE ATTENDANCE
+# -----------------------------
 
 async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -132,6 +159,10 @@ async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     selected_students.clear()
 
     await query.edit_message_text("Attendance saved.")
+
+# -----------------------------
+# REPORT GENERATOR
+# -----------------------------
 
 async def generate_report(context: ContextTypes.DEFAULT_TYPE):
 
@@ -195,6 +226,10 @@ async def generate_report(context: ContextTypes.DEFAULT_TYPE):
 async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
     await generate_report(context)
 
+# -----------------------------
+# MAIN
+# -----------------------------
+
 def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -203,13 +238,13 @@ def main():
 
     job_queue.run_daily(
         send_daily_prompt,
-        time=datetime.strptime("21:00", "%H:%M").time(),
+        time=time(hour=21, minute=0),
         chat_id=CHAT_ID,
     )
 
     job_queue.run_daily(
         weekly_report,
-        time=datetime.strptime("21:00", "%H:%M").time(),
+        time=time(hour=21, minute=0),
         days=(6,),
         chat_id=CHAT_ID,
     )
@@ -217,6 +252,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test", test))
     app.add_handler(CommandHandler("report", report))
+    app.add_handler(CommandHandler("backup", backup))
 
     app.add_handler(CallbackQueryHandler(class_response, pattern="class_"))
     app.add_handler(CallbackQueryHandler(toggle_student, pattern="student_"))
