@@ -1,22 +1,31 @@
 import os
 import json
 import sqlite3
+import pytz
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+# -----------------------------
+# ENV VARIABLES
+# -----------------------------
+
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = int(os.getenv("CHAT_ID"))
 
-# ---------- LOAD STUDENTS ----------
+# -----------------------------
+# LOAD STUDENTS
+# -----------------------------
 
 with open("students.json", "r") as f:
     students = json.load(f)
 
 selected_students = set()
 
-# ---------- DATABASE ----------
+# -----------------------------
+# DATABASE
+# -----------------------------
 
 conn = sqlite3.connect("attendance.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -31,12 +40,19 @@ CREATE TABLE IF NOT EXISTS attendance (
 
 conn.commit()
 
-# ---------- COMMAND ----------
+# -----------------------------
+# COMMANDS
+# -----------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Dance Attendance Bot Running")
 
-# ---------- DAILY PROMPT ----------
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_daily_prompt(context)
+
+# -----------------------------
+# DAILY PROMPT
+# -----------------------------
 
 async def send_daily_prompt(context: ContextTypes.DEFAULT_TYPE):
 
@@ -51,7 +67,9 @@ async def send_daily_prompt(context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ---------- CLASS RESPONSE ----------
+# -----------------------------
+# YES / NO RESPONSE
+# -----------------------------
 
 async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -65,7 +83,9 @@ async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "class_yes":
         await show_students(query)
 
-# ---------- STUDENT BUTTONS ----------
+# -----------------------------
+# STUDENT BUTTONS
+# -----------------------------
 
 async def show_students(query):
 
@@ -90,7 +110,9 @@ async def show_students(query):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ---------- TOGGLE STUDENT ----------
+# -----------------------------
+# TOGGLE STUDENTS
+# -----------------------------
 
 async def toggle_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -106,7 +128,9 @@ async def toggle_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await show_students(query)
 
-# ---------- SAVE ATTENDANCE ----------
+# -----------------------------
+# SAVE ATTENDANCE
+# -----------------------------
 
 async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -126,7 +150,9 @@ async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text("Attendance saved.")
 
-# ---------- WEEKLY REPORT ----------
+# -----------------------------
+# WEEKLY REPORT
+# -----------------------------
 
 async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
 
@@ -167,20 +193,37 @@ async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(chat_id=CHAT_ID, text=text)
 
-# ---------- MAIN ----------
+# -----------------------------
+# MAIN
+# -----------------------------
 
 def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    scheduler = AsyncIOScheduler()
+    scheduler = AsyncIOScheduler(
+        timezone=pytz.timezone("Asia/Kolkata")
+    )
 
-    scheduler.add_job(send_daily_prompt, "cron", hour=21, minute=0)
-    scheduler.add_job(weekly_report, "cron", day_of_week="sun", hour=21, minute=0)
+    scheduler.add_job(
+        send_daily_prompt,
+        "cron",
+        hour=21,
+        minute=0
+    )
+
+    scheduler.add_job(
+        weekly_report,
+        "cron",
+        day_of_week="sun",
+        hour=21,
+        minute=0
+    )
 
     scheduler.start()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("test", test))
 
     app.add_handler(CallbackQueryHandler(class_response, pattern="class_"))
     app.add_handler(CallbackQueryHandler(toggle_student, pattern="student_"))
