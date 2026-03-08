@@ -37,7 +37,8 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS attendance (
 id INTEGER PRIMARY KEY AUTOINCREMENT,
 date TEXT,
-student TEXT
+student TEXT,
+UNIQUE(date, student)
 )
 """)
 
@@ -52,6 +53,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_daily_prompt(context)
+
+async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await generate_report(context)
 
 # ==============================
 # DAILY PROMPT
@@ -87,12 +91,13 @@ async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_students(query)
 
 # ==============================
-# STUDENT BUTTONS
+# STUDENT BUTTONS (2 columns)
 # ==============================
 
 async def show_students(query):
 
     keyboard = []
+    row = []
 
     for student in students:
 
@@ -100,9 +105,16 @@ async def show_students(query):
         if student in selected_students:
             label = f"✅ {student}"
 
-        keyboard.append(
-            [InlineKeyboardButton(label, callback_data=f"student_{student}")]
+        row.append(
+            InlineKeyboardButton(label, callback_data=f"student_{student}")
         )
+
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+
+    if row:
+        keyboard.append(row)
 
     keyboard.append(
         [InlineKeyboardButton("SUBMIT", callback_data="submit")]
@@ -144,10 +156,13 @@ async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for student in selected_students:
 
-        cursor.execute(
-            "INSERT INTO attendance (date, student) VALUES (?, ?)",
-            (today, student),
-        )
+        try:
+            cursor.execute(
+                "INSERT INTO attendance (date, student) VALUES (?, ?)",
+                (today, student),
+            )
+        except sqlite3.IntegrityError:
+            pass  # prevents duplicate entries
 
     conn.commit()
     selected_students.clear()
@@ -155,10 +170,10 @@ async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("Attendance saved.")
 
 # ==============================
-# WEEKLY REPORT
+# REPORT GENERATOR
 # ==============================
 
-async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
+async def generate_report(context: ContextTypes.DEFAULT_TYPE):
 
     cursor.execute("""
     SELECT student, strftime('%Y-%m', date) as month, COUNT(*)
@@ -198,6 +213,13 @@ async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=CHAT_ID, text=text)
 
 # ==============================
+# WEEKLY REPORT JOB
+# ==============================
+
+async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
+    await generate_report(context)
+
+# ==============================
 # MAIN
 # ==============================
 
@@ -226,6 +248,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test", test))
+    app.add_handler(CommandHandler("report", report))
 
     app.add_handler(CallbackQueryHandler(class_response, pattern="class_"))
     app.add_handler(CallbackQueryHandler(toggle_student, pattern="student_"))
