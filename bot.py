@@ -1,48 +1,51 @@
 import os
 import json
 import sqlite3
-import pytz
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 
-# -----------------------------
+# ==============================
 # ENV VARIABLES
-# -----------------------------
+# ==============================
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = int(os.getenv("CHAT_ID"))
 
-# -----------------------------
+# ==============================
 # LOAD STUDENTS
-# -----------------------------
+# ==============================
 
 with open("students.json", "r") as f:
     students = json.load(f)
 
 selected_students = set()
 
-# -----------------------------
+# ==============================
 # DATABASE
-# -----------------------------
+# ==============================
 
 conn = sqlite3.connect("attendance.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS attendance (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
-    student TEXT
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+date TEXT,
+student TEXT
 )
 """)
 
 conn.commit()
 
-# -----------------------------
+# ==============================
 # COMMANDS
-# -----------------------------
+# ==============================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Dance Attendance Bot Running")
@@ -50,26 +53,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_daily_prompt(context)
 
-# -----------------------------
+# ==============================
 # DAILY PROMPT
-# -----------------------------
+# ==============================
 
 async def send_daily_prompt(context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [[
         InlineKeyboardButton("YES", callback_data="class_yes"),
-        InlineKeyboardButton("NO", callback_data="class_no")
+        InlineKeyboardButton("NO", callback_data="class_no"),
     ]]
 
     await context.bot.send_message(
         chat_id=CHAT_ID,
         text="Did class happen today?",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-# -----------------------------
+# ==============================
 # YES / NO RESPONSE
-# -----------------------------
+# ==============================
 
 async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -83,9 +86,9 @@ async def class_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "class_yes":
         await show_students(query)
 
-# -----------------------------
+# ==============================
 # STUDENT BUTTONS
-# -----------------------------
+# ==============================
 
 async def show_students(query):
 
@@ -97,22 +100,22 @@ async def show_students(query):
         if student in selected_students:
             label = f"✅ {student}"
 
-        keyboard.append([
-            InlineKeyboardButton(label, callback_data=f"student_{student}")
-        ])
+        keyboard.append(
+            [InlineKeyboardButton(label, callback_data=f"student_{student}")]
+        )
 
-    keyboard.append([
-        InlineKeyboardButton("SUBMIT", callback_data="submit")
-    ])
+    keyboard.append(
+        [InlineKeyboardButton("SUBMIT", callback_data="submit")]
+    )
 
     await query.edit_message_text(
         "Select students present:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-# -----------------------------
-# TOGGLE STUDENTS
-# -----------------------------
+# ==============================
+# TOGGLE STUDENT
+# ==============================
 
 async def toggle_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -128,9 +131,9 @@ async def toggle_student(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await show_students(query)
 
-# -----------------------------
+# ==============================
 # SAVE ATTENDANCE
-# -----------------------------
+# ==============================
 
 async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -140,9 +143,10 @@ async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now().strftime("%Y-%m-%d")
 
     for student in selected_students:
+
         cursor.execute(
             "INSERT INTO attendance (date, student) VALUES (?, ?)",
-            (today, student)
+            (today, student),
         )
 
     conn.commit()
@@ -150,9 +154,9 @@ async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text("Attendance saved.")
 
-# -----------------------------
+# ==============================
 # WEEKLY REPORT
-# -----------------------------
+# ==============================
 
 async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
 
@@ -193,34 +197,32 @@ async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(chat_id=CHAT_ID, text=text)
 
-# -----------------------------
+# ==============================
 # MAIN
-# -----------------------------
+# ==============================
 
 def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    scheduler = AsyncIOScheduler(
-        timezone=pytz.timezone("Asia/Kolkata")
-    )
+    job_queue = app.job_queue
 
-    scheduler.add_job(
+    # Daily 9 PM IST
+    job_queue.run_daily(
         send_daily_prompt,
-        "cron",
-        hour=21,
-        minute=0
+        time=datetime.strptime("21:00", "%H:%M").time(),
+        chat_id=CHAT_ID,
+        name="daily_attendance",
     )
 
-    scheduler.add_job(
+    # Sunday 9 PM IST
+    job_queue.run_daily(
         weekly_report,
-        "cron",
-        day_of_week="sun",
-        hour=21,
-        minute=0
+        time=datetime.strptime("21:00", "%H:%M").time(),
+        days=(6,),
+        chat_id=CHAT_ID,
+        name="weekly_report",
     )
-
-    scheduler.start()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test", test))
