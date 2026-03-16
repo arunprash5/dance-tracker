@@ -2,6 +2,8 @@ import os
 import json
 import sqlite3
 from datetime import datetime, time
+from zoneinfo import ZoneInfo
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
     ApplicationBuilder,
@@ -14,6 +16,8 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = int(os.getenv("CHAT_ID"))
 
 DB_PATH = "/data/attendance.db"
+
+IST = ZoneInfo("Asia/Kolkata")
 
 with open("students.json", "r") as f:
     students = json.load(f)
@@ -143,7 +147,7 @@ async def submit_attendance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(IST).strftime("%Y-%m-%d")
 
     for student in selected_students:
 
@@ -238,13 +242,13 @@ def main():
 
     job_queue.run_daily(
         send_daily_prompt,
-        time=time(hour=21, minute=0),
+        time=time(hour=21, minute=0, tzinfo=IST),
         chat_id=CHAT_ID,
     )
 
     job_queue.run_daily(
         weekly_report,
-        time=time(hour=21, minute=0),
+        time=time(hour=21, minute=0, tzinfo=IST),
         days=(6,),
         chat_id=CHAT_ID,
     )
